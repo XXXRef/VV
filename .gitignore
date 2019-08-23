@@ -2,4 +2,7 @@
 
 !*/
 !*.asm
+!*.py
 !.gitignore
+
+venv/
