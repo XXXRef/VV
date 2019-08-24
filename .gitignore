@@ -3,6 +3,7 @@
 !*/
 !*.asm
 !*.py
+!*.md
 !.gitignore
 
 venv/
