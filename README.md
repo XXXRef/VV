@@ -1,4 +1,4 @@
-#VV - very very sexy PE32 encrypting infector virus
+# VV - very very sexy PE32 encrypting infector virus #
 
 PE32 infector which encrypts its main body
 
@@ -19,5 +19,5 @@ python prepare_generation0.py
 
 **Now VV is fully charged and god damn ready to hunt. Let the pandemy begin ;)**
 
-##Misc##
+## Misc ##
 Published under "Do Whatever The Fuk You Want" (DWtFYW) Licence. Omg no, only for educational purposes ofc
